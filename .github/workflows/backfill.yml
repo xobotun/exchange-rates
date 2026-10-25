@@ -1,0 +1,82 @@
+name: backfill
+
+# Fetches a date range, one calendar year at a time, and commits it.
+# Per-day banks (NBG, NBK, CBR) need one request per day at ≤ 2 per second:
+# 2019-12-24 → today is ~2,500 requests, ~25 minutes per bank (they run in
+# parallel). A failed year stops that provider; the years before it are
+# kept and committed, so re-running the same backfill resumes cheaply.
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: First date (YYYY-MM-DD); not before 2019-12-24
+        required: true
+        default: '2019-12-24'
+      to:
+        description: Last date (YYYY-MM-DD); empty = today (UTC)
+        required: false
+        default: ''
+      provider:
+        description: Provider
+        required: true
+        default: all
+        type: choice
+        options: [all, ecb, nbg, nbk, cba, cbr]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rates-update # shared with nightly.yml: never two writers at once
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the parsers
+        run: npm test
+
+      - name: Backfill
+        id: update
+        continue-on-error: true
+        env:
+          FROM: ${{ inputs.from }}
+          TO: ${{ inputs.to }}
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          args=(--from "$FROM")
+          [ -n "$TO" ] && args+=(--to "$TO")
+          [ "$PROVIDER" != all ] && args+=(--provider "$PROVIDER")
+          node scripts/update.mjs "${args[@]}"
+
+      - name: Commit changes
+        if: always() && steps.update.outcome != 'skipped'
+        env:
+          FROM: ${{ inputs.from }}
+          TO: ${{ inputs.to }}
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          for d in v1 raw; do [ -e "$d" ] && git add --all -- "$d"; done
+          if git diff --cached --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit --quiet --message "rates: backfill ${PROVIDER} ${FROM}..${TO:-$(date -u +%F)}"
+          git push || (git pull --rebase && git push)
+
+      - name: Fail if a provider failed
+        if: steps.update.outcome == 'failure'
+        run: |
+          echo "::error::At least one provider failed; see the 'Backfill' log. Re-run to resume."
+          exit 1

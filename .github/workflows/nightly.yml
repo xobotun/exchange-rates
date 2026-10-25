@@ -1,0 +1,60 @@
+name: nightly
+
+# Refreshes the last 10 days of every provider (widened automatically if
+# the previous runs were missed) and commits only when a file changed.
+#
+# 18:00 UTC: after every bank has published the rates in force today —
+# ECB ~14:00–15:00 UTC (16:00 CET), CBR ~12:30 UTC, NBG ~13:00 UTC (both
+# for the next day), CBA during the Yerevan working day, NBK the day before.
+# A late publication is picked up by the next night's run, which re-reads
+# the whole 10-day window.
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rates-update # shared with backfill.yml: never two writers at once
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Test the parsers
+        run: npm test
+
+      - name: Update rates
+        id: update
+        continue-on-error: true # still commit what the other providers fetched
+        run: node scripts/update.mjs
+
+      - name: Commit changes
+        if: always() && steps.update.outcome != 'skipped'
+        run: |
+          for d in v1 raw; do [ -e "$d" ] && git add --all -- "$d"; done
+          if git diff --cached --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit --quiet --message "rates: nightly $(date -u +%F)"
+          git push || (git pull --rebase && git push)
+
+      - name: Fail if a provider failed
+        if: steps.update.outcome == 'failure'
+        run: |
+          echo "::error::At least one provider failed; see the 'Update rates' log. Its files were left untouched."
+          exit 1

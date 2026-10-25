@@ -1,0 +1,15 @@
+{
+  "name": "exchange-rates",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Official central-bank exchange rates as static JSON files (fawazahmed0-shaped), updated nightly by GitHub Actions.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "update": "node scripts/update.mjs"
+  },
+  "license": "MIT"
+}

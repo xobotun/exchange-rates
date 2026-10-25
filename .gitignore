@@ -1,0 +1,5 @@
+# Local test runs write here (node scripts/update.mjs --out out).
+/out/
+node_modules/
+.DS_Store
+*.tmp-*
