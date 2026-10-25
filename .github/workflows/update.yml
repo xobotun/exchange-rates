@@ -1,16 +1,18 @@
-name: nightly
+name: update
 
-# Refreshes the last 10 days of every provider (widened automatically if
-# the previous runs were missed) and commits only when a file changed.
+# Refreshes yesterday and today of every provider, twice a day, and commits
+# only when a file changed. After missed runs the window is widened to join
+# the dates already published, so the gap is re-read; a bank's correction
+# of a rate older than yesterday is not picked up.
 #
-# 18:00 UTC: after every bank has published the rates in force today —
-# ECB ~14:00–15:00 UTC (16:00 CET), CBR ~12:30 UTC, NBG ~13:00 UTC (both
-# for the next day), CBA during the Yerevan working day, NBK the day before.
-# A late publication is picked up by the next night's run, which re-reads
-# the whole 10-day window.
+# 06:00 UTC: NBK, CBR (~12:30 UTC) and NBG (~13:00 UTC) set today's rates
+# the day before. 18:00 UTC: ECB (~14:00–15:00 UTC, 16:00 CET) and CBA
+# (during the Yerevan working day) have published today's rates too.
+# History is filled in by hand with backfill.yml.
 
 on:
   schedule:
+    - cron: '0 6 * * *'
     - cron: '0 18 * * *'
   workflow_dispatch:
 
@@ -38,7 +40,7 @@ jobs:
       - name: Update rates
         id: update
         continue-on-error: true # still commit what the other providers fetched
-        run: node scripts/update.mjs
+        run: node scripts/update.mjs --days 1
 
       - name: Commit changes
         if: always() && steps.update.outcome != 'skipped'
@@ -50,7 +52,7 @@ jobs:
           fi
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit --quiet --message "rates: nightly $(date -u +%F)"
+              commit --quiet --message "rates: update $(date -u '+%F %H:%M') UTC"
           git push || (git pull --rebase && git push)
 
       - name: Fail if a provider failed

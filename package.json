@@ -2,7 +2,7 @@
   "name": "exchange-rates",
   "version": "1.0.0",
   "private": true,
-  "description": "Official central-bank exchange rates as static JSON files (fawazahmed0-shaped), updated nightly by GitHub Actions.",
+  "description": "Official central-bank exchange rates as static JSON files (fawazahmed0-shaped), updated twice a day by GitHub Actions.",
   "type": "module",
   "engines": {
     "node": ">=22"

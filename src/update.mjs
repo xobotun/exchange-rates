@@ -122,10 +122,12 @@ export function planChunkFiles(p, { chunk, fetched, raw, store, span }) {
 }
 
 /**
- * Updates one provider in `outDir`.
+ * Updates one provider in `outDir`. With `maxYears`, a window that would span
+ * more year chunks than that (a backfill year far from the published span,
+ * widened to join it) fails before anything is fetched.
  * @returns {Promise<{id: string, ok: boolean, error?: Error, changed: number, span: object|null, chunks: object[]}>}
  */
-export async function updateProvider({ provider: p, outDir, from, to, today, http, cache = new Map(), log = () => {} }) {
+export async function updateProvider({ provider: p, outDir, from, to, today, http, maxYears, cache = new Map(), log = () => {} }) {
   const result = { id: p.id, ok: true, changed: 0, span: null, chunks: [] };
   let span = await readSpan(outDir, p);
   result.span = span;
@@ -138,9 +140,19 @@ export async function updateProvider({ provider: p, outDir, from, to, today, htt
     log(`window ${window.from}..${window.to} (capped at today / widened to join the published ${span?.first}..${span?.last})`);
   }
 
+  const chunks = planChunks(window.from, window.to, span);
+  if (maxYears && chunks.length > maxYears) {
+    const next = span && (window.from < span.first ? Number(yearOf(span.first)) - 1 : Number(yearOf(span.last)) + 1);
+    const message =
+      `${window.from}..${window.to} spans ${chunks.length} years (at most ${maxYears})` +
+      (span ? ` to join the published ${span.first}..${span.last}: backfill ${next} first` : '');
+    log(`FAILED, nothing fetched: ${message}`);
+    return { ...result, ok: false, error: new Error(message) };
+  }
+
   let store = await readStore(outDir, p);
   const ctx = { http, cache, today, log };
-  for (const chunk of planChunks(window.from, window.to, span)) {
+  for (const chunk of chunks) {
     try {
       const { publications, raw } = await p.fetchRange(chunk.from, chunk.to, ctx);
       validatePublications(p, publications);

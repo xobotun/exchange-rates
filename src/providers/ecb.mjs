@@ -60,7 +60,7 @@ async function fetchRange(from, to, ctx) {
   const newest = doc.publications.at(-1).date;
   return {
     publications: doc.publications.filter((p) => p.date >= needFrom && p.date <= to),
-    // Stable name per year: the nightly overwrites it, git history keeps every version.
+    // Stable name per year: every update overwrites it, git history keeps every version.
     raw: [{ path: `raw/ecb/${yearOf(newest)}/${doc.file}`, body: doc.body }],
   };
 }

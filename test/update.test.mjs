@@ -258,6 +258,35 @@ test('a chunk failing in the middle of a backfill keeps the written part consist
   assert.equal(files.some((f) => f.includes('2021')), false);
 });
 
+test('maxYears: a window widened past that many years fetches and writes nothing', async (t) => {
+  const dir = await tempDir(t);
+  const pubs = { '2024-12-31': { aaa: 1 }, '2025-12-31': { aaa: 2 }, '2026-10-15': { aaa: 3 } };
+  await run(dir, stubBank(pubs), '2026-10-15', '2026-10-20');
+  const before = await snapshot(dir);
+
+  const bank = stubBank(pubs);
+  const result = await updateProvider({ provider: bank, outDir: dir, from: '2020-01-01', to: '2020-12-31', today: '2026-10-25', http: null, maxYears: 2 });
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /backfill 2025 first/);
+  assert.deepEqual(bank.calls, []);
+  assert.deepEqual(await snapshot(dir), before);
+});
+
+test('maxYears: the year next to the published span runs, with the part of the year it widens into', async (t) => {
+  const dir = await tempDir(t);
+  const pubs = { '2024-12-31': { aaa: 1 }, '2025-12-31': { aaa: 2 }, '2026-10-15': { aaa: 3 } };
+  await run(dir, stubBank(pubs), '2026-10-15', '2026-10-20');
+
+  const bank = stubBank(pubs);
+  const result = await updateProvider({ provider: bank, outDir: dir, from: '2025-01-01', to: '2025-12-31', today: '2026-10-25', http: null, maxYears: 2 });
+  assert.equal(result.ok, true);
+  assert.deepEqual(bank.calls, [
+    { from: '2026-01-01', to: '2026-10-14' },
+    { from: '2025-01-01', to: '2025-12-31' },
+  ]);
+  assert.equal((await readJsonFile(dir, 'v1/tst/meta.json')).first_date, '2025-01-01');
+});
+
 test('planWindow: floor, cap and widening to the published span', () => {
   const floor = HISTORY_START;
   assert.deepEqual(planWindow({ from: '2019-01-01', to: '2030-01-01', today: '2026-10-25', floor, span: null }), {

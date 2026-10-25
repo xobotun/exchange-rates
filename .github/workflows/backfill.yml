@@ -1,22 +1,23 @@
 name: backfill
 
-# Fetches a date range, one calendar year at a time, and commits it.
-# Per-day banks (NBG, NBK, CBR) need one request per day at ≤ 2 per second:
-# 2019-12-24 → today is ~2,500 requests, ~25 minutes per bank (they run in
-# parallel). A failed year stops that provider; the years before it are
-# kept and committed, so re-running the same backfill resumes cheaply.
+# Fetches one calendar year and commits it. Run it once per year, newest
+# first (2026, 2025, …): per-day banks (NBG, NBK, CBR) need one request per
+# day at ≤ 2 per second, ~3 minutes a year (they run in parallel).
+#
+# Each bank's window is widened to join the dates it already has, so a
+# year far from them would quietly fetch every year in between. Such a bank
+# fails without fetching anything (--max-years 2) and names the year to run
+# first; the other banks still run. Once a bank has its history start
+# (2019-12-24), an earlier year does nothing for it. A failed year writes
+# nothing for that bank: run the same year again.
 
 on:
   workflow_dispatch:
     inputs:
-      from:
-        description: First date (YYYY-MM-DD); not before 2019-12-24
+      year:
+        description: Year (YYYY), newest first, next to the years already fetched
         required: true
-        default: '2019-12-24'
-      to:
-        description: Last date (YYYY-MM-DD); empty = today (UTC)
-        required: false
-        default: ''
+        type: string
       provider:
         description: Provider
         required: true
@@ -28,14 +29,23 @@ permissions:
   contents: write
 
 concurrency:
-  group: rates-update # shared with nightly.yml: never two writers at once
+  group: rates-update # shared with update.yml: never two writers at once
   cancel-in-progress: false
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 30
     steps:
+      - name: Check the year
+        env:
+          YEAR: ${{ inputs.year }}
+        run: |
+          if ! [[ "$YEAR" =~ ^[0-9]{4}$ ]] || [ "$YEAR" -gt "$(date -u +%Y)" ]; then
+            echo "::error::Year must be four digits and not in the future, got '$YEAR'."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -48,21 +58,19 @@ jobs:
       - name: Backfill
         id: update
         continue-on-error: true
+        timeout-minutes: 20 # on the step, so the commit below still runs
         env:
-          FROM: ${{ inputs.from }}
-          TO: ${{ inputs.to }}
+          YEAR: ${{ inputs.year }}
           PROVIDER: ${{ inputs.provider }}
         run: |
-          args=(--from "$FROM")
-          [ -n "$TO" ] && args+=(--to "$TO")
+          args=(--from "$YEAR-01-01" --to "$YEAR-12-31" --max-years 2)
           [ "$PROVIDER" != all ] && args+=(--provider "$PROVIDER")
           node scripts/update.mjs "${args[@]}"
 
       - name: Commit changes
         if: always() && steps.update.outcome != 'skipped'
         env:
-          FROM: ${{ inputs.from }}
-          TO: ${{ inputs.to }}
+          YEAR: ${{ inputs.year }}
           PROVIDER: ${{ inputs.provider }}
         run: |
           for d in v1 raw; do [ -e "$d" ] && git add --all -- "$d"; done
@@ -72,11 +80,11 @@ jobs:
           fi
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit --quiet --message "rates: backfill ${PROVIDER} ${FROM}..${TO:-$(date -u +%F)}"
+              commit --quiet --message "rates: backfill ${PROVIDER} ${YEAR}"
           git push || (git pull --rebase && git push)
 
       - name: Fail if a provider failed
-        if: steps.update.outcome == 'failure'
+        if: always() && (steps.update.outcome == 'failure' || steps.update.outcome == 'cancelled')
         run: |
-          echo "::error::At least one provider failed; see the 'Backfill' log. Re-run to resume."
+          echo "::error::At least one provider failed; see the 'Backfill' log. Run the same year again, or first the year it names."
           exit 1

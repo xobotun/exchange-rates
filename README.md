@@ -2,7 +2,7 @@
 
 Official exchange rates published by five central banks: the European Central
 Bank and the central banks of Georgia, Kazakhstan, Armenia and Russia. The
-rates are republished every night as static JSON files. They are free and need
+rates are republished twice a day as static JSON files. They are free and need
 no API key. Browsers can read them directly from `raw.githubusercontent.com`,
 which sends `Access-Control-Allow-Origin: *`. That covers the banks whose own
 sites send no CORS headers (NBK, CBA, CBR).
@@ -132,7 +132,7 @@ Each provider has exactly one currency file: the one for its home currency
 
 `latest` is the day file for `last_date` in `meta.json`, which is the date of
 the most recent run (UTC). The updater writes only dates up to today, so rates
-a bank has already set for tomorrow (NBG, CBR) appear the night after.
+a bank has already set for tomorrow (NBG, CBR) appear in the next morning's run.
 
 ### Year files
 
@@ -194,24 +194,30 @@ example, CBA's day files for 2020-01-01 to 2020-01-07 show the publication of
 
 ## Updates
 
-- **Nightly** (`.github/workflows/nightly.yml`) runs every day at 18:00 UTC,
-  after all five banks have published the rates in force that day. GitHub may
-  start scheduled runs late. Each run re-reads the last ten days (today − 10
-  to today, UTC) of every bank, so corrections and late publications are
-  picked up. If runs were missed, the window grows back to the last published
-  day, so no gap appears. The workflow can also be started by hand.
-- **Backfill** (`.github/workflows/backfill.yml`) is started by hand, with
-  three inputs:
-  - `from`: YYYY-MM-DD, default `2019-12-24`. Earlier dates are moved up to
-    it.
-  - `to`: YYYY-MM-DD; leave it empty for today (UTC).
+- **Update** (`.github/workflows/update.yml`) runs every day at 06:00 and
+  18:00 UTC. GitHub may start scheduled runs late. Each run re-reads
+  yesterday and today (UTC) of every bank. By 06:00, NBK, NBG and CBR have
+  set today's rates (they set them the day before); by 18:00, ECB and CBA
+  have published today's too. A late publication or a correction for
+  yesterday is picked up by the next run; a correction to an older date is
+  not. If runs were missed, the window grows back to the last published day,
+  so no gap appears. The workflow can also be started by hand.
+- **Backfill** (`.github/workflows/backfill.yml`) is started by hand, once
+  per calendar year, with two inputs:
+  - `year`: YYYY, not in the future. Dates before 2019-12-24 are moved up to
+    it, so once 2019 is fetched, an earlier year does nothing for the current
+    banks.
   - `provider`: `all` or one id.
 
-  The backfill works one calendar year at a time. The banks that answer one
-  date per request (NBG, NBK, CBR) need about 2,500 requests for the full
-  history, at no more than two per second, so a full run takes at least
-  20 minutes. The banks run in parallel. If a year fails, the years before it
-  are kept and committed, so re-running the backfill resumes where it stopped.
+  Run it newest year first: 2026, then 2025, and so on down to 2019. The
+  banks that answer one date per request (NBG, NBK, CBR) need about 365
+  requests a year, at no more than two per second, so a year takes a few
+  minutes. The banks run in parallel. A bank's window grows to reach the
+  dates it already has, so a year that is not next to them would also fetch
+  every year in between. Such a bank fails without fetching anything
+  (`--max-years 2`), and its log line names the year to run first; the other
+  banks still run. A failed year writes nothing for that bank, so running the
+  same year again retries it.
 - **What both workflows have in common.** Both run `npm test` first. They share
   one concurrency group, so two runs never write at the same time. They commit
   `v1/` and `raw/` as `github-actions[bot]`, and only when a file changed. A
@@ -273,7 +279,8 @@ dependencies, so there is nothing to install.
 ```sh
 npm test                                                  # offline: parsers on real responses, writer, update rules, HTTP client
 
-node scripts/update.mjs --out out                         # the nightly window, all banks
+node scripts/update.mjs --out out                         # the last ten days, all banks
+node scripts/update.mjs --days 1 --out out                # yesterday and today, as the scheduled runs do
 node scripts/update.mjs --from 2026-01-01 --out out       # from a date up to today
 node scripts/update.mjs --provider nbk,cba --from 2024-01-01 --to 2024-12-31 --out out
 ```
@@ -284,6 +291,7 @@ node scripts/update.mjs --provider nbk,cba --from 2024-01-01 --to 2024-12-31 --o
 | `--from YYYY-MM-DD` | First date. Default: `--to` minus `--days`. Dates before 2019-12-24 are moved up to it. |
 | `--to YYYY-MM-DD` | Last date. Default: today (UTC). Dates after today are capped to today. |
 | `--days N` | Window length when `--from` is not given. Default: 10. |
+| `--max-years N` | A bank whose window, grown to reach the dates it already has, spans more than N calendar years fails without fetching anything. The backfill workflow passes 2. Default: no limit. |
 | `--out DIR` | Where `v1/` and `raw/` are written. Default: the repository root, which is what the workflows use. `out/` is ignored by git. |
 
 The exit code is 0 on success, 1 when a bank failed (the others are still
@@ -313,13 +321,15 @@ written), and 2 for bad arguments. To change the `User-Agent`, set the
    there is its position in `providers.json`.
 3. Add its id to the `provider` options in `.github/workflows/backfill.yml`.
 4. Add parser tests that use real responses saved under `test/fixtures/<id>/`.
-5. Run the backfill workflow for the new bank.
+5. Run the backfill workflow for the new bank, one year at a time from the
+   current year back.
 
 ### Maintenance notes
 
-- The nightly run covers only the last ten days. On a fresh repository, run
-  the backfill once (defaults: from 2019-12-24, all banks) to publish the
-  history. Until then `first_date` is about ten days back.
+- The scheduled runs cover only yesterday and today. On a fresh repository,
+  run the backfill for each year, newest first, from the current year down to
+  2019, to publish the history. Until then `first_date` reaches back only as
+  far as the runs so far have gone.
 - `raw/` grows by one file per day for each of NBG, NBK and CBR (about 9–14 KB
   each). ECB and CBA overwrite one file per year, and git history keeps the
   older versions.
