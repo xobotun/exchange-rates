@@ -17,14 +17,29 @@ import { fetchDaily } from './daily.mjs';
 //   newest known rates: never ask for a date after today (the updater caps
 //   every run at today, UTC).
 // - No CORS, so browsers cannot read it directly.
+// - The feed has lost some days the bank did publish (2023-07-28..2023-08-28
+//   except 08-22): it answers them with <info>на выбранную дату
+//   информации нет.</info> ("no information for the selected date") and no
+//   items. Such a day is no publication: its day file repeats the previous
+//   one, the run warns about it, and scripts/nbk-excel-fill.mjs fills it from
+//   NBK's Excel export (README "Maintenance notes").
 
 const URL_BASE = 'https://nationalbank.kz/rss/get_rates.cfm';
 
-/** @returns {{date: string, rates: Record<string, number>}} */
+/** True only for the answer "no information for the selected date": a dated feed with no items. */
+export function isNoInformation(text) {
+  return (
+    !text.includes('<item>') &&
+    /<info>\s*на выбранную дату информации нет\.\s*<\/info>/.test(text)
+  );
+}
+
+/** @returns {{date: string, rates: Record<string, number>} | null} null for a day the feed has no information for */
 export function parse(xml) {
   const text = Buffer.isBuffer(xml) ? xml.toString('utf8') : xml;
   const dateMatch = /<date>([^<]*)<\/date>/.exec(text);
   if (!text.includes('<rates>') || !dateMatch) throw new Error('not an NBK rates feed');
+  if (isNoInformation(text)) return null;
   const rates = {};
   for (const [, item] of text.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
     const field = (name) => new RegExp(`<${name}>([^<]*)</${name}>`).exec(item)?.[1].trim();

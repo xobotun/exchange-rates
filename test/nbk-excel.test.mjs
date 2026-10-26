@@ -1,18 +1,22 @@
 // The NBK Excel export (scripts/nbk-excel-fill.mjs) on real answers saved on
-// 2026-10-26: the export for 23.07.2023–31.08.2023 with every currency, the
-// RSS answer for 27.07.2023, and the RSS "no information" answer for
-// 28.07.2023 (the feed has nothing for 2023-07-28..2023-08-28 except 08-22).
+// 2026-10-26: the export for 23.07.2023–31.08.2023 with every currency, and
+// the RSS answer for 27.07.2023 (the feed has nothing for
+// 2023-07-28..2023-08-28 except 08-22).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parse as parseRss } from '../src/providers/nbk.mjs';
-import { excelUrl, fetchRangeWithExcel, isNoInformation, parseExcel } from '../src/nbk-excel.mjs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import nbk, { parse as parseRss } from '../src/providers/nbk.mjs';
+import { excelFetchRange, excelUrl, parseExcel } from '../src/nbk-excel.mjs';
+import { readStore } from '../src/tree.mjs';
+import { updateProvider } from '../src/update.mjs';
 
 const fixture = (path) => readFileSync(new URL(`fixtures/${path}`, import.meta.url));
 const XLSX = fixture('nbk/excel-2023-07-23_2023-08-31.xlsx');
 const RSS_0727 = fixture('nbk/2023-07-27.xml');
-const NO_INFO = fixture('nbk/2023-07-28-no-information.xml');
 
 /** An http stub answering by URL substring (first match wins); records every request. */
 function stubHttp(routes) {
@@ -27,7 +31,7 @@ function stubHttp(routes) {
   };
 }
 
-const ctx = (http) => ({ http, cache: new Map(), today: '2026-10-26', log: () => {} });
+const ctx = (http) => ({ http, cache: new Map(), today: '2026-10-26', log: () => {}, missing: [] });
 
 test('nbk excel: one publication per row, KZT per quant inverted like the RSS', () => {
   const pubs = parseExcel(XLSX);
@@ -59,87 +63,55 @@ test('nbk excel: the URL asks for every currency id and DD.MM.YYYY dates', () =>
   assert.ok(ids.includes('6')); // EUR
 });
 
-test('nbk rss: only the exact "no information" answer counts as a gap', () => {
-  assert.equal(isNoInformation(NO_INFO), true);
-  assert.equal(isNoInformation(RSS_0727), false);
-  const bare = NO_INFO.toString('utf8').replace(/<info>[^<]*<\/info>/, '');
-  assert.equal(isNoInformation(Buffer.from(bare)), false);
-});
-
-test('fetchRangeWithExcel: RSS days stay, "no information" days come from the export, all raw kept', async () => {
-  const http = stubHttp([
-    ['fdate=27.07.2023', RSS_0727],
-    ['get_rates.cfm', NO_INFO],
-    ['/excel?', XLSX],
-  ]);
-  const { publications, raw } = await fetchRangeWithExcel('2023-07-27', '2023-07-29', ctx(http), {
-    excelFrom: '2023-07-23',
-    excelTo: '2023-08-31',
-  });
-  assert.deepEqual(
-    publications.map((p) => p.date),
-    ['2023-07-27', '2023-07-28', '2023-07-29'],
-  );
-  assert.deepEqual(publications[0].rates, parseRss(RSS_0727).rates);
+test('excelFetchRange: one export for the range; the days the tree lacks come from it, stored days stay', async () => {
+  const http = stubHttp([['/excel?', XLSX]]);
+  const stored = new Map([['2023-07-27', parseRss(RSS_0727).rates]]);
+  const { publications, raw } = await excelFetchRange(stored)('2023-07-27', '2023-07-29', ctx(http));
+  assert.deepEqual(publications.map((p) => p.date), ['2023-07-27', '2023-07-28', '2023-07-29']);
+  assert.deepEqual(publications[0].rates, stored.get('2023-07-27'));
   assert.equal(publications[1].rates.eur, 1 / 495.37);
   assert.equal(publications[2].rates.eur, 1 / 489);
-  assert.deepEqual(
-    raw.map((r) => r.path),
-    [
-      'raw/nbk/2023/2023-07-27.xml',
-      'raw/nbk/2023/2023-07-28.xml',
-      'raw/nbk/2023/2023-07-29.xml',
-      'raw/nbk/2023/excel-2023-07-23_2023-08-31.xlsx',
-    ],
-  );
-  assert.equal(http.requests.filter((u) => u.includes('/excel?')).length, 1);
+  assert.deepEqual(raw.map((r) => r.path), ['raw/nbk/2023/excel-2023-07-27_2023-07-29.xlsx']);
+  assert.equal(http.requests.length, 1);
+  assert.equal(new URL(http.requests[0]).searchParams.get('beginDate'), '27.07.2023');
 });
 
-test('fetchRangeWithExcel: no gap, no export request', async () => {
-  const http = stubHttp([['fdate=27.07.2023', RSS_0727]]);
-  const { publications, raw } = await fetchRangeWithExcel('2023-07-27', '2023-07-27', ctx(http));
-  assert.deepEqual(publications.map((p) => p.date), ['2023-07-27']);
-  assert.equal(raw.length, 1);
+test('excelFetchRange: a stored day that differs from the export fails', async () => {
+  const http = stubHttp([['/excel?', XLSX]]);
+  const stored = new Map([['2023-07-27', { ...parseRss(RSS_0727).rates, eur: 1 / 492.02 }]]);
+  await assert.rejects(excelFetchRange(stored)('2023-07-27', '2023-07-28', ctx(http)), /2023-07-27.*eur/);
 });
 
-test('fetchRangeWithExcel: an export that differs from the RSS on a shared day fails', async () => {
-  const changed = Buffer.from(RSS_0727.toString('utf8').replace('<description>492.01</description>', '<description>492.02</description>'));
-  const http = stubHttp([
-    ['fdate=27.07.2023', changed],
-    ['get_rates.cfm', NO_INFO],
-    ['/excel?', XLSX],
-  ]);
-  await assert.rejects(
-    fetchRangeWithExcel('2023-07-27', '2023-07-28', ctx(http), { excelFrom: '2023-07-23', excelTo: '2023-08-31' }),
-    /2023-07-27.*eur/,
-  );
+test('excelFetchRange: without a stored day in the range to compare against, nothing is filled', async () => {
+  const http = stubHttp([['/excel?', XLSX]]);
+  const stored = new Map([['2023-07-27', parseRss(RSS_0727).rates]]);
+  await assert.rejects(excelFetchRange(stored)('2023-07-28', '2023-07-29', ctx(http)), /nothing to cross-check/);
 });
 
-test('fetchRangeWithExcel: without an RSS day inside the export to compare against, nothing is filled', async () => {
-  const http = stubHttp([
-    ['get_rates.cfm', NO_INFO],
-    ['/excel?', XLSX],
-  ]);
-  await assert.rejects(
-    fetchRangeWithExcel('2023-07-28', '2023-07-29', ctx(http), { excelFrom: '2023-07-23', excelTo: '2023-08-31' }),
-    /nothing to cross-check/,
-  );
+test('excelFetchRange: a day neither stored nor in the export fails', async () => {
+  const http = stubHttp([['/excel?', XLSX]]);
+  const stored = new Map([['2023-08-31', parseExcel(XLSX).at(-1).rates]]);
+  await assert.rejects(excelFetchRange(stored)('2023-08-31', '2023-09-01', ctx(http)), /2023-09-01/);
 });
 
-test('fetchRangeWithExcel: a gap day the export does not have fails', async () => {
-  const http = stubHttp([
-    ['fdate=27.07.2023', RSS_0727],
-    ['get_rates.cfm', NO_INFO],
-    ['/excel?', XLSX],
-  ]);
-  await assert.rejects(
-    fetchRangeWithExcel('2023-07-27', '2023-09-01', ctx(http), { excelFrom: '2023-07-23', excelTo: '2023-08-31' }),
-    /2023-09-01.*not in the export/,
-  );
-});
+test('excelFetchRange with updateProvider: carried-forward days get their own publication, a rerun changes nothing', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'rates-test-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const rss = parseRss(RSS_0727);
+  const feed = { ...nbk, fetchRange: async () => ({ publications: [rss], raw: [] }) }; // 28 and 29 lost
+  const run = (provider) =>
+    updateProvider({ provider, outDir: dir, from: '2023-07-27', to: '2023-07-29', today: '2026-10-26', http: stubHttp([['/excel?', XLSX]]) });
+  await run(feed);
+  const day = (date) => JSON.parse(readFileSync(join(dir, `v1/nbk/${date}/currencies/kzt.json`), 'utf8'));
+  assert.equal(day('2023-07-28').date, '2023-07-27');
 
-test('fetchRangeWithExcel: any other empty RSS answer still fails', async () => {
-  const bare = Buffer.from(NO_INFO.toString('utf8').replace(/<info>[^<]*<\/info>/, ''));
-  const http = stubHttp([['get_rates.cfm', bare]]);
-  await assert.rejects(fetchRangeWithExcel('2023-07-28', '2023-07-28', ctx(http)), /2023-07-28.*no rates/);
+  const patched = await run({ ...nbk, fetchRange: excelFetchRange(await readStore(dir, nbk)) });
+  assert.equal(patched.ok, true);
+  assert.deepEqual(day('2023-07-27'), { date: '2023-07-27', kzt: Object.fromEntries(Object.entries(rss.rates).sort()) });
+  assert.equal(day('2023-07-28').date, '2023-07-28');
+  assert.equal(day('2023-07-28').kzt.eur, 1 / 495.37);
+  assert.equal(day('2023-07-29').kzt.eur, 1 / 489);
+
+  const again = await run({ ...nbk, fetchRange: excelFetchRange(await readStore(dir, nbk)) });
+  assert.equal(again.changed, 0);
 });

@@ -20,7 +20,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, providerById } from '../src/providers/index.mjs';
 import { createHttp } from '../src/http.mjs';
-import { addDays, assertIsoDate, todayUtc } from '../src/dates.mjs';
+import { addDays, assertIsoDate, dateRuns, todayUtc } from '../src/dates.mjs';
 import { updateProvider, writeProvidersList } from '../src/update.mjs';
 
 const DEFAULT_DAYS = 10;
@@ -94,6 +94,14 @@ const results = await Promise.all(
 );
 
 await writeProvidersList(outDir);
+
+// Days a bank said it has nothing for repeat the previous publication. On
+// GitHub this line becomes a warning on the run (README "Maintenance notes").
+for (const r of results) {
+  if (r.missing?.length > 0) {
+    console.log(`::warning title=${r.id}: no rates for ${r.missing.length} day(s)::${dateRuns(r.missing).join(', ')} repeat the previous publication`);
+  }
+}
 
 const failed = results.filter((r) => !r.ok);
 if (failed.length > 0) {

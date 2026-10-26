@@ -43,7 +43,8 @@ How each bank's source is read (the updater handles all of this):
   dated Saturday. The last Sunday with its own rates is 2021-09-05.
 - **NBK.** RSS XML, one request per date, KZT per `quant` units. The feed
   answers any date, even a future one, with its newest rates, so the updater
-  never asks for a date after today (UTC).
+  never asks for a date after today (UTC). It has lost some days the bank did
+  publish (see "Maintenance notes").
 - **CBA.** CSV export, one request per calendar year. A longer range with
   every currency times out. The list of currencies comes from the SOAP service
   `https://api.cba.am/exchangerates.asmx` (`ISOCodesDetailed`). Each column
@@ -227,7 +228,10 @@ example, CBA's day files for 2020-01-01 to 2020-01-07 show the publication of
   fetched, parsed and checked (dates, lowercase three-letter codes, finite
   positive numbers) before anything is written. A failure therefore writes
   nothing for that bank: no partial or empty files. The other banks are still
-  committed, and the run is then marked as failed.
+  committed, and the run is then marked as failed. The one exception is a day
+  NBK explicitly says it has no rates for: that day repeats the previous
+  publication, the rest is written, and the run gets a warning instead (see
+  "Maintenance notes").
 - **Requests.** Each bank gets its own HTTP client, which starts at most two
   requests per second. It retries network errors, timeouts, 429 and 5xx
   responses, waiting 2, 4, 8 and then 16 seconds. Its `User-Agent` names this
@@ -337,15 +341,17 @@ written), and 2 for bad arguments. To change the `User-Agent`, set the
   except 2023-08-22, with `<info>на выбранную дату информации нет.</info>`
   ("no information for the selected date") and no rates, and the HTML report
   on nationalbank.kz has the same hole. The bank did publish those days, and
-  the Excel export of the same page has every one of them. The workflows fail
-  on such a day, so a new gap is noticed. To fill one, run by hand
-  `node scripts/nbk-excel-fill.mjs --year 2023` (or `--from` / `--to`, and
-  `--excel-from` / `--excel-to` for the export's range, by default the
-  calendar months of the gap). It reads the RSS as usual and takes only the
-  "no information" days from the export, after checking that the export
-  matches the RSS exactly on every day both have. The export is kept under
-  `raw/nbk/<YYYY>/excel-<from>_<to>.xlsx`. 2023 was filled this way, with the
-  export for 2023-07-23..2023-08-31.
+  the Excel export of the same page has every one of them. The workflows
+  write such a day as a repeat of the previous publication (its `date` names
+  that one) and put a warning on the run listing the days. To fill them,
+  run by hand `node scripts/nbk-excel-fill.mjs --from … --to …` for a range
+  around the warned days, inside what the tree holds and including at least
+  one day the feed did answer, e.g. the calendar month. It makes one export
+  request per year of the range and nothing else, checks that the export
+  matches the stored rates exactly on every day both have, and only then
+  fills the missing days. The export is kept under
+  `raw/nbk/<YYYY>/excel-<from>_<to>.xlsx`. 2023 was filled from the export
+  for 2023-07-23..2023-08-31.
 
 ## Disclaimer
 

@@ -258,6 +258,35 @@ test('a chunk failing in the middle of a backfill keeps the written part consist
   assert.equal(files.some((f) => f.includes('2021')), false);
 });
 
+test('days the bank reports missing are written as carry-forward days and listed in the result', async (t) => {
+  const dir = await tempDir(t);
+  const bank = stubBank({ '2026-10-20': { aaa: 1 }, '2026-10-23': { aaa: 2 } });
+  const fetchStub = bank.fetchRange;
+  bank.fetchRange = async (from, to, ctx) => {
+    ctx.missing.push('2026-10-21', '2026-10-22');
+    return fetchStub(from, to, ctx);
+  };
+  const result = await run(dir, bank, '2026-10-20', '2026-10-23');
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.missing, ['2026-10-21', '2026-10-22']);
+  assert.equal((await readJsonFile(dir, 'v1/tst/2026-10-22/currencies/hom.json')).date, '2026-10-20');
+  assert.equal((await readJsonFile(dir, 'v1/tst/meta.json')).last_date, '2026-10-23');
+});
+
+test('a day the bank reports missing but the tree already has (filled by hand) keeps its rates and is not reported', async (t) => {
+  const dir = await tempDir(t);
+  await run(dir, stubBank({ '2026-10-20': { aaa: 1 }, '2026-10-21': { aaa: 5 }, '2026-10-23': { aaa: 2 } }), '2026-10-20', '2026-10-23');
+  const bank = stubBank({ '2026-10-20': { aaa: 1 }, '2026-10-23': { aaa: 2 } });
+  const fetchStub = bank.fetchRange;
+  bank.fetchRange = async (from, to, ctx) => {
+    ctx.missing.push('2026-10-21', '2026-10-22');
+    return fetchStub(from, to, ctx);
+  };
+  const result = await run(dir, bank, '2026-10-20', '2026-10-23');
+  assert.deepEqual(result.missing, ['2026-10-22']);
+  assert.deepEqual(await readJsonFile(dir, 'v1/tst/2026-10-21/currencies/hom.json'), { date: '2026-10-21', hom: { aaa: 5 } });
+});
+
 test('maxYears: a window widened past that many years fetches and writes nothing', async (t) => {
   const dir = await tempDir(t);
   const pubs = { '2024-12-31': { aaa: 1 }, '2025-12-31': { aaa: 2 }, '2026-10-15': { aaa: 3 } };

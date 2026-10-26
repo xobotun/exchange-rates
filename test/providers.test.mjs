@@ -115,6 +115,14 @@ test('nbk: 2020 answer has its own (smaller) currency list', () => {
   assert.equal('vnd' in rates, false);
 });
 
+test('nbk: the "no information" answer for a day the feed has lost is no publication', () => {
+  const noInformation = fixture('nbk/2023-07-28-no-information.xml');
+  assert.equal(nbk.parse(noInformation), null);
+  // Without the message it is just an empty feed, which the updater rejects.
+  const bare = Buffer.from(noInformation.toString('utf8').replace(/<info>[^<]*<\/info>/, ''));
+  assert.deepEqual(nbk.parse(bare), { date: '2023-07-28', rates: {} });
+});
+
 test('cbr: windows-1251, comma decimals, keyed by ValCurs Date (Sunday → Saturday)', () => {
   const { date, rates } = cbr.parse(fixture('cbr/2026-10-25.xml'));
   assert.equal(date, '2026-10-24');

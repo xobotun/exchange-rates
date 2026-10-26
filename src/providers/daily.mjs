@@ -10,12 +10,15 @@ import { eachDay, yearOf } from '../dates.mjs';
  *
  * Each response is kept as served under raw/<id>/<YYYY>/<asked date>.<ext>.
  * Any failed request throws, so the caller writes nothing for this range.
+ * An answer `parse` returns null for is the bank saying it has nothing for
+ * that day (NBK's lost days): no publication, so the day repeats the previous
+ * one, and the day goes into `ctx.missing` for the run to report.
  *
  * @param {object} p
  * @param {string} p.id provider id (raw path)
  * @param {string} p.ext raw file extension
  * @param {(date: string) => string} p.url
- * @param {(body: Buffer) => {date: string, rates: Record<string, number>}} p.parse
+ * @param {(body: Buffer) => {date: string, rates: Record<string, number>} | null} p.parse
  */
 export async function fetchDaily({ id, ext, url, parse }, from, to, ctx) {
   const byDate = new Map();
@@ -28,12 +31,17 @@ export async function fetchDaily({ id, ext, url, parse }, from, to, ctx) {
     } catch (e) {
       throw new Error(`${id}: cannot parse the answer for ${asked}: ${e.message}`, { cause: e });
     }
+    raw.push({ path: `raw/${id}/${yearOf(asked)}/${asked}.${ext}`, body });
+    if (publication === null) {
+      ctx.log(`${asked}: the bank has no rates for this day, it repeats the previous publication`);
+      ctx.missing?.push(asked);
+      continue;
+    }
     if (publication.date > asked) {
       // Never seen; would mean the bank answers with a future publication.
       throw new Error(`${id}: asked for ${asked}, got a publication dated ${publication.date}`);
     }
     byDate.set(publication.date, publication);
-    raw.push({ path: `raw/${id}/${yearOf(asked)}/${asked}.${ext}`, body });
   }
   return { publications: [...byDate.values()], raw };
 }

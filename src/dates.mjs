@@ -51,6 +51,17 @@ export function fromDmy(s) {
   return iso;
 }
 
+/** Sorted dates as runs of consecutive days: ['2022-12-20', '2022-12-21', '2022-12-25'] → ['2022-12-20..2022-12-21', '2022-12-25']. */
+export function dateRuns(days) {
+  const runs = [];
+  for (const day of days) {
+    const last = runs.at(-1);
+    if (last && addDays(last.to, 1) === day) last.to = day;
+    else runs.push({ from: day, to: day });
+  }
+  return runs.map((r) => (r.from === r.to ? r.from : `${r.from}..${r.to}`));
+}
+
 /**
  * Splits [from, to] at calendar-year boundaries:
  * 2025-12-20..2026-01-05 → [2025-12-20..2025-12-31], [2026-01-01..2026-01-05].

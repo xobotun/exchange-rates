@@ -124,11 +124,13 @@ export function planChunkFiles(p, { chunk, fetched, raw, store, span }) {
 /**
  * Updates one provider in `outDir`. With `maxYears`, a window that would span
  * more year chunks than that (a backfill year far from the published span,
- * widened to join it) fails before anything is fetched.
- * @returns {Promise<{id: string, ok: boolean, error?: Error, changed: number, span: object|null, chunks: object[]}>}
+ * widened to join it) fails before anything is fetched. `missing` lists the
+ * days the bank said it has nothing for (fetchRange puts them in ctx.missing)
+ * that the tree still has no publication for: they repeat the previous one.
+ * @returns {Promise<{id: string, ok: boolean, error?: Error, changed: number, span: object|null, chunks: object[], missing: string[]}>}
  */
 export async function updateProvider({ provider: p, outDir, from, to, today, http, maxYears, cache = new Map(), log = () => {} }) {
-  const result = { id: p.id, ok: true, changed: 0, span: null, chunks: [] };
+  const result = { id: p.id, ok: true, changed: 0, span: null, chunks: [], missing: [] };
   let span = await readSpan(outDir, p);
   result.span = span;
   const window = planWindow({ from, to, today, floor: p.firstDate, span });
@@ -151,15 +153,17 @@ export async function updateProvider({ provider: p, outDir, from, to, today, htt
   }
 
   let store = await readStore(outDir, p);
-  const ctx = { http, cache, today, log };
+  const ctx = { http, cache, today, log, missing: [] };
   for (const chunk of chunks) {
     try {
+      ctx.missing = [];
       const { publications, raw } = await p.fetchRange(chunk.from, chunk.to, ctx);
       validatePublications(p, publications);
       const plan = planChunkFiles(p, { chunk, fetched: publications, raw, store, span });
       let changed = 0;
       for (const file of plan.files) if (await writeIfChanged(join(outDir, file.path), file.content)) changed++;
       ({ store, span } = plan);
+      result.missing.push(...ctx.missing.filter((day) => !store.has(day)));
       result.changed += changed;
       result.span = span;
       result.chunks.push({ ...chunk, changed });

@@ -1,6 +1,6 @@
-// NBK's Excel export, as a fallback for the days its RSS feed has lost.
-// Only scripts/nbk-excel-fill.mjs uses it; the scheduled runs keep failing on
-// such a day, so a new gap is noticed instead of being papered over.
+// NBK's Excel export, to fill the days its RSS feed has lost. Only
+// scripts/nbk-excel-fill.mjs uses it, by hand: the scheduled runs write such a
+// day as a repeat of the previous publication and warn about it.
 //
 // The RSS answers 2023-07-28..2023-08-28 (except 2023-08-22) with
 // <info>на выбранную дату информации нет.</info> and no items, and so does the
@@ -12,11 +12,9 @@
 // exactly, or nothing is filled).
 
 import { inflateRawSync } from 'node:zlib';
-import { eachDay, fromDmy, toDmy, yearOf } from './dates.mjs';
+import { dateRuns, eachDay, fromDmy, toDmy, yearOf } from './dates.mjs';
 import { foreignPerHome, isQuote, parseDecimal } from './normalize.mjs';
-import { parse as parseRss } from './providers/nbk.mjs';
 
-const RSS_URL = 'https://nationalbank.kz/rss/get_rates.cfm';
 const EXCEL_URL = 'https://nationalbank.kz/en/exchangerates/ezhednevnye-oficialnye-rynochnye-kursy-valyut/excel';
 
 /** The page's currency checkboxes (`rates[]`), October 2026: all 48 currencies. */
@@ -28,17 +26,6 @@ export const CURRENCY_IDS = [
 export function excelUrl(from, to) {
   const ids = CURRENCY_IDS.map((id) => `rates%5B%5D=${id}`).join('&');
   return `${EXCEL_URL}?beginDate=${toDmy(from, '.')}&endDate=${toDmy(to, '.')}&search-exchanges=&${ids}`;
-}
-
-/** True only for the RSS answer "no information for the selected date": a dated feed with no items. */
-export function isNoInformation(body) {
-  const text = Buffer.isBuffer(body) ? body.toString('utf8') : body;
-  return (
-    text.includes('<rates>') &&
-    /<date>[^<]*<\/date>/.test(text) &&
-    !text.includes('<item>') &&
-    /<info>\s*на выбранную дату информации нет\.\s*<\/info>/.test(text)
-  );
 }
 
 /** The entries of a zip archive (stored or deflated), read via its central directory. */
@@ -116,72 +103,43 @@ export function parseExcel(xlsx) {
   return publications.sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
-const lastDayOfMonth = (iso) => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).toISOString().slice(0, 10);
-
 /** Throws unless every day both have is identical (codes and numbers); returns how many days were compared. */
-function crossCheck(excel, rss) {
+function crossCheck(excel, stored) {
   let compared = 0;
-  for (const [date, { rates }] of excel) {
-    const fromRss = rss.get(date)?.rates;
-    if (!fromRss) continue;
+  for (const [date, rates] of excel) {
+    const have = stored.get(date);
+    if (!have) continue;
     const codes = Object.keys(rates).sort().join(',');
-    const rssCodes = Object.keys(fromRss).sort().join(',');
-    if (codes !== rssCodes) throw new Error(`nbk: the export differs from the RSS on ${date}: codes ${codes} ≠ ${rssCodes}`);
+    const storedCodes = Object.keys(have).sort().join(',');
+    if (codes !== storedCodes) throw new Error(`nbk: the export differs from the stored rates on ${date}: codes ${codes} ≠ ${storedCodes}`);
     for (const code of Object.keys(rates)) {
-      if (!Object.is(rates[code], fromRss[code])) {
-        throw new Error(`nbk: the export differs from the RSS on ${date}: ${code} ${rates[code]} ≠ ${fromRss[code]}`);
+      if (!Object.is(rates[code], have[code])) {
+        throw new Error(`nbk: the export differs from the stored rates on ${date}: ${code} ${rates[code]} ≠ ${have[code]}`);
       }
     }
     compared++;
   }
-  if (compared === 0) throw new Error('nbk: the export shares no day with the RSS answers, nothing to cross-check');
+  if (compared === 0) throw new Error('nbk: the export shares no day with the stored rates, nothing to cross-check');
   return compared;
 }
 
 /**
- * NBK's fetchRange with the Excel export for the days the RSS has lost: one
- * RSS request per day (raw kept for every asked day, the empty answers too);
- * a day answered with exactly "no information" is taken from one export of
- * `excelFrom..excelTo` (default: the calendar months of the gap), after the
- * export matched the RSS on every day both have. Any other empty or odd
- * answer throws, as in fetchDaily.
+ * NBK's fetchRange for filling, from one Excel export per range, the days the
+ * tree has no publication for. `stored` is the tree's date → rates (readStore):
+ * every day both have must match the export exactly, at least one must, and
+ * the export must have every day of the range the tree lacks. Returns the
+ * export's rows of the range; the stored days come back unchanged.
  */
-export async function fetchRangeWithExcel(from, to, ctx, { excelFrom, excelTo } = {}) {
-  const byDate = new Map();
-  const raw = [];
-  const gaps = [];
-  for (const asked of eachDay(from, to)) {
-    const body = await ctx.http.get(`${RSS_URL}?fdate=${toDmy(asked, '.')}`);
-    raw.push({ path: `raw/nbk/${yearOf(asked)}/${asked}.xml`, body });
-    if (isNoInformation(body)) {
-      gaps.push(asked);
-      continue;
-    }
-    let publication;
-    try {
-      publication = parseRss(body);
-    } catch (e) {
-      throw new Error(`nbk: cannot parse the answer for ${asked}: ${e.message}`, { cause: e });
-    }
-    if (publication.date > asked) throw new Error(`nbk: asked for ${asked}, got a publication dated ${publication.date}`);
-    if (Object.keys(publication.rates).length === 0) throw new Error(`nbk: the answer for ${asked} has no rates`);
-    byDate.set(publication.date, publication);
-  }
-
-  if (gaps.length > 0) {
-    const start = excelFrom ?? `${gaps[0].slice(0, 7)}-01`;
-    const end = excelTo ?? lastDayOfMonth(gaps.at(-1));
-    ctx.log(`${gaps.length} day(s) without RSS rates, ${gaps[0]}..${gaps.at(-1)}: Excel export ${start}..${end}`);
-    const body = await ctx.http.get(excelUrl(start, end));
-    raw.push({ path: `raw/nbk/${yearOf(start)}/excel-${start}_${end}.xlsx`, body });
-    const excel = new Map(parseExcel(body).map((p) => [p.date, p]));
-    const compared = crossCheck(excel, byDate);
-    ctx.log(`the export matches the RSS on all ${compared} day(s) both have`);
-    for (const day of gaps) {
-      const publication = excel.get(day);
-      if (!publication) throw new Error(`nbk: ${day} has no RSS rates and is not in the export ${start}..${end}`);
-      byDate.set(day, publication);
-    }
-  }
-  return { publications: [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)), raw };
+export function excelFetchRange(stored) {
+  return async (from, to, ctx) => {
+    const body = await ctx.http.get(excelUrl(from, to));
+    const publications = parseExcel(body).filter((p) => p.date >= from && p.date <= to);
+    const excel = new Map(publications.map((p) => [p.date, p.rates]));
+    const compared = crossCheck(excel, stored);
+    const lacking = [...eachDay(from, to)].filter((day) => !stored.has(day));
+    const absent = lacking.filter((day) => !excel.has(day));
+    if (absent.length > 0) throw new Error(`nbk: no rates stored for ${dateRuns(absent).join(', ')}, and the export has none either`);
+    ctx.log(`the export matches the stored rates on all ${compared} day(s) both have; filled from it: ${dateRuns(lacking).join(', ') || 'nothing'}`);
+    return { publications, raw: [{ path: `raw/nbk/${yearOf(from)}/excel-${from}_${to}.xlsx`, body }] };
+  };
 }

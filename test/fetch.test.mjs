@@ -49,6 +49,18 @@ test('daily banks: NBK asks with DD.MM.YYYY; an answer dated after the asked day
   await assert.rejects(nbk.fetchRange('2026-10-24', '2026-10-24', ctx(http)), /got a publication dated 2026-10-25/);
 });
 
+test('daily banks: a day NBK has no information for is no publication, kept as raw and reported missing', async () => {
+  const http = stubHttp([
+    ['fdate=27.07.2023', fixture('nbk/2023-07-27.xml')],
+    ['nationalbank.kz', fixture('nbk/2023-07-28-no-information.xml')],
+  ]);
+  const c = { ...ctx(http, '2026-10-26'), missing: [] };
+  const { publications, raw } = await nbk.fetchRange('2023-07-27', '2023-07-29', c);
+  assert.deepEqual(publications.map((p) => p.date), ['2023-07-27']);
+  assert.deepEqual(raw.map((r) => r.path), ['raw/nbk/2023/2023-07-27.xml', 'raw/nbk/2023/2023-07-28.xml', 'raw/nbk/2023/2023-07-29.xml']);
+  assert.deepEqual(c.missing, ['2023-07-28', '2023-07-29']);
+});
+
 test('daily banks: an unparsable answer fails the whole range', async () => {
   const http = stubHttp([['nbg.gov.ge', Buffer.from('<html>busy</html>')]]);
   await assert.rejects(nbg.fetchRange('2026-10-25', '2026-10-25', ctx(http)), /cannot parse the answer for 2026-10-25/);
