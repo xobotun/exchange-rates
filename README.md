@@ -15,6 +15,21 @@ code that reads one can read the other.
 https://raw.githubusercontent.com/xobotun/exchange-rates/main/v1/nbk/latest/currencies/kzt.json
 ```
 
+## Browsing the rates
+
+[xobotun.github.io/exchange-rates](https://xobotun.github.io/exchange-rates/)
+draws the rates as a chart: pick a bank, up to eight of the currencies it
+quoted in the chosen days, and any range of days. A switch flips between
+"1 EUR = … USD" and "1 USD = … EUR", and a log scale is one tick away. Drag
+across the chart to zoom into those days; double-click to zoom back out. The
+settings are kept in the URL, so a link reopens the same view.
+
+The page is `docs/`, published by GitHub Pages from `main`. It reads the year
+files from `raw.githubusercontent.com`, so a data commit shows up there within
+the five minutes that host caches files for. The chart is
+[uPlot](https://github.com/leeoniya/uPlot), loaded from jsDelivr at a pinned
+version with a Subresource Integrity hash; nothing is built.
+
 ## Providers
 
 | id | Bank | Home | Source endpoint | Rates dated |
@@ -281,7 +296,7 @@ You need Node.js 22 or newer; the workflows use Node 24. There are no
 dependencies, so there is nothing to install.
 
 ```sh
-npm test                                                  # offline: parsers on real responses, writer, update rules, HTTP client
+npm test                                                  # offline: parsers on real responses, writer, update rules, HTTP client, the page's data logic
 
 node scripts/update.mjs --out out                         # the last ten days, all banks
 node scripts/update.mjs --days 1 --out out                # yesterday and today, as the scheduled runs do
@@ -301,6 +316,11 @@ node scripts/update.mjs --provider nbk,cba --from 2024-01-01 --to 2024-12-31 --o
 The exit code is 0 on success, 1 when a bank failed (the others are still
 written), and 2 for bad arguments. To change the `User-Agent`, set the
 `RATES_USER_AGENT` environment variable.
+
+To preview the page, serve the repository root over HTTP (browsers do not run
+its modules from `file://`), for example with `python3 -m http.server`, and
+open `http://localhost:8000/docs/`. On `localhost` or `127.0.0.1` the page
+reads `v1/` from the checkout instead of from GitHub.
 
 ### Adding a bank
 

@@ -1,0 +1,270 @@
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --wash: rgba(11, 11, 11, 0.05);
+  --accent: #2a78d6;
+  --critical: #d03b3b;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --wash: rgba(255, 255, 255, 0.06);
+    --accent: #3987e5;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--accent); }
+
+.top, main, .bottom {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.top { padding-top: 20px; }
+.top h1 { margin: 0; font-size: 22px; }
+.top p { margin: 4px 0 0; color: var(--text-secondary); }
+
+.bottom {
+  padding-bottom: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.bottom p { margin: 4px 0; }
+
+/* Controls: one row above everything they scope. */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 24px;
+  margin: 20px 0 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.field-name {
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+fieldset.field { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+fieldset.field > legend { margin-bottom: 4px; }
+
+.field.check { flex-direction: row; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; }
+
+select, input[type="date"], input[type="search"] {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+select { max-width: 100%; }
+
+.range { display: flex; align-items: center; gap: 6px; }
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.segmented button, .segmented label {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.segmented > * + * { border-left: 1px solid var(--border); }
+.segmented button:hover, .segmented label:hover { background: var(--wash); }
+.segmented button[aria-pressed="true"], .segmented label:has(input:checked) {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--wash);
+}
+.segmented label input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.status {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--critical);
+  background: var(--surface);
+}
+
+/* Currency list beside the chart; above it on narrow screens. */
+
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.picker, .view {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.picker { display: flex; flex-direction: column; gap: 8px; }
+.picker-head { margin: 0; font-size: 13px; font-weight: 600; }
+.picker input[type="search"] { width: 100%; }
+
+.codes {
+  flex: 1;
+  min-height: 0;
+  max-height: 520px;
+  overflow-y: auto;
+  margin: 0 -4px;
+}
+.code {
+  display: grid;
+  grid-template-columns: auto 14px 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.code[hidden] { display: none; }
+.code:hover { background: var(--wash); }
+.code input { margin: 0; }
+.code .code-id { font-weight: 600; font-variant-numeric: tabular-nums; }
+.code .code-name { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.code.disabled { cursor: default; opacity: 0.45; }
+.code.disabled:hover { background: none; }
+
+/* A line key, not a box: these are lines. */
+.key { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+
+.note { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; }
+.picker .note { margin: 0; }
+
+.caption { margin: 0 0 8px; color: var(--text-secondary); }
+
+/* While a range loads, the old chart stays, dimmed: no flash, no jump. */
+.chart-wrap { position: relative; min-height: 300px; transition: opacity 0.15s; }
+.chart-wrap.loading { opacity: 0.5; }
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--text-muted);
+}
+.empty[hidden] { display: none; }
+
+/* uPlot, in the page's tokens. */
+
+.uplot { width: 100%; font-family: inherit; }
+.u-legend { color: var(--text-secondary); font-size: 13px; }
+.u-legend .u-marker {
+  width: 14px;
+  height: 0;
+  border-width: 1px 0 !important;
+  border-radius: 1px;
+  background: none !important;
+}
+.u-select { background: var(--wash); }
+.u-hz .u-cursor-x { border-right: 1px solid var(--axis); }
+
+.tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  min-width: 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.tooltip-day { margin-bottom: 4px; color: var(--text-secondary); font-size: 12px; }
+.tooltip-row { display: flex; align-items: center; gap: 8px; }
+.tooltip-row b { font-variant-numeric: tabular-nums; }
+.tooltip-row span:last-child { color: var(--text-secondary); }
+
+/* Table view: every charted value, without hovering. */
+
+.table-box { margin-top: 12px; }
+.table-box summary { cursor: pointer; color: var(--text-secondary); font-weight: 600; }
+.table-scroll { max-height: 420px; overflow: auto; margin-top: 8px; }
+.table-scroll table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.table-scroll th, .table-scroll td { padding: 3px 12px 3px 0; text-align: right; white-space: nowrap; }
+.table-scroll th:first-child, .table-scroll td:first-child { text-align: left; }
+.table-scroll thead th { position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--axis); }
+.table-scroll tbody tr + tr td { border-top: 1px solid var(--grid); }
+
+@media (max-width: 800px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .codes { max-height: 220px; }
+}
