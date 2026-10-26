@@ -333,6 +333,19 @@ written), and 2 for bad arguments. To change the `User-Agent`, set the
 - `raw/` grows by one file per day for each of NBG, NBK and CBR (about 9–14 KB
   each). ECB and CBA overwrite one file per year, and git history keeps the
   older versions.
+- **NBK's RSS feed has lost some days.** It answers 2023-07-28 to 2023-08-28,
+  except 2023-08-22, with `<info>на выбранную дату информации нет.</info>`
+  ("no information for the selected date") and no rates, and the HTML report
+  on nationalbank.kz has the same hole. The bank did publish those days, and
+  the Excel export of the same page has every one of them. The workflows fail
+  on such a day, so a new gap is noticed. To fill one, run by hand
+  `node scripts/nbk-excel-fill.mjs --year 2023` (or `--from` / `--to`, and
+  `--excel-from` / `--excel-to` for the export's range, by default the
+  calendar months of the gap). It reads the RSS as usual and takes only the
+  "no information" days from the export, after checking that the export
+  matches the RSS exactly on every day both have. The export is kept under
+  `raw/nbk/<YYYY>/excel-<from>_<to>.xlsx`. 2023 was filled this way, with the
+  export for 2023-07-23..2023-08-31.
 
 ## Disclaimer
 
