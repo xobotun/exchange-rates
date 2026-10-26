@@ -3,6 +3,6 @@
   "name": "Central Bank of the Russian Federation",
   "home": "rub",
   "source": "https://www.cbr.ru/scripts/XML_daily.asp",
-  "first_date": "2026-01-01",
+  "first_date": "2025-01-01",
   "last_date": "2026-10-26"
 }
